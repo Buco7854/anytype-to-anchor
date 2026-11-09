@@ -182,7 +182,7 @@ test("keyboard path, reduced motion, enlarged text, and accessibility of empty a
   ).toBe(true);
 });
 
-test("unnamed notes show readable titles in the preview and downloaded Anchor ZIP", async ({
+test("unnamed notes have readable review labels but no title in the preview or Anchor ZIP", async ({
   page,
 }) => {
   await page.goto("/");
@@ -209,7 +209,8 @@ test("unnamed notes show readable titles in the preview and downloaded Anchor ZI
     buffer: Buffer.from(JSON.stringify(note)),
   });
   await expect(page.locator(".note-row-title")).toHaveText("À lire");
-  await expect(page.locator("#note-preview h3")).toHaveText("À lire");
+  await expect(page.locator("#note-preview h3")).toHaveCount(0);
+  await expect(page.locator(".preview-meta")).toContainText("No title");
   await expect(page.locator(".preview-content")).toContainText(
     "A list of books to revisit.",
   );
@@ -220,7 +221,11 @@ test("unnamed notes show readable titles in the preview and downloaded Anchor ZI
     new Uint8Array(await readFile((await download.path())!)),
   );
   const manifest = JSON.parse(strFromU8(zip["manifest.json"]));
-  expect(manifest.notes[0].title).toBe("À lire");
+  expect(manifest.notes[0].title).toBe("");
+  const markdown = strFromU8(
+    Object.entries(zip).find(([path]) => path.startsWith("markdown/"))![1],
+  );
+  expect(markdown).not.toMatch(/^# /m);
   expect(manifest.notes[0].content).toContain("A list of books to revisit.");
   expect(manifest.notes[0].tagIds).toHaveLength(1);
 });

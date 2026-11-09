@@ -1,4 +1,5 @@
 import "./style.css";
+import { noteLabel } from "./lib/titles";
 import { MAX_INPUT, type InputFile } from "./lib/archive";
 import { ALLOWED_MIME, selectedNotes } from "./lib/convert";
 import {
@@ -159,7 +160,7 @@ function visibleNotes(): Note[] {
     (note) =>
       options.kinds.includes(note.kind) &&
       (options.includeArchived || !note.archived) &&
-      `${note.title} ${note.tags.join(" ")} ${note.typeName}`
+      `${noteLabel(note)} ${note.tags.join(" ")} ${note.typeName}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
@@ -171,7 +172,7 @@ function currentWarnings(chosen: Note[]): string[] {
       for (const file of note.attachments) {
         if (!ALLOWED_MIME.has(file.mime))
           warnings.push(
-            `${note.title}: ${file.name} will be kept in unsupported-attachments/. Anchor only imports supported images and audio.`,
+            `${noteLabel(note)}: ${file.name} will be kept in unsupported-attachments/. Anchor only imports supported images and audio.`,
           );
       }
   }
@@ -245,7 +246,7 @@ function renderList() {
       const check = el("input");
       check.type = "checkbox";
       check.checked = options.selectedKeys.includes(note.key);
-      check.setAttribute("aria-label", `Include ${note.title}`);
+      check.setAttribute("aria-label", `Include ${noteLabel(note)}`);
       check.addEventListener("change", () => {
         if (check.checked) options.selectedKeys.push(note.key);
         else
@@ -261,16 +262,16 @@ function renderList() {
       button.type = "button";
       button.setAttribute(
         "aria-label",
-        `Preview ${note.title} ${note.kind === "task" ? "Task" : "Note"}${note.archived ? " · Archived" : ""}`,
+        `Preview ${noteLabel(note)} ${note.kind === "task" ? "Task" : "Note"}${note.title ? "" : " · No title"}${note.archived ? " · Archived" : ""}`,
       );
       button.setAttribute("aria-pressed", String(activeKey === note.key));
       button.append(
-        el("span", "note-row-title", note.title),
+        el("span", "note-row-title", noteLabel(note)),
         document.createTextNode(" "),
         el(
           "span",
           "note-row-type",
-          `${note.kind === "task" ? "Task" : "Note"}${note.archived ? " · Archived" : ""}`,
+          `${note.kind === "task" ? "Task" : "Note"}${note.title ? "" : " · No title"}${note.archived ? " · Archived" : ""}`,
         ),
       );
       button.addEventListener("click", () => {
@@ -310,10 +311,10 @@ function renderPreview() {
     el(
       "p",
       "preview-meta",
-      `${note.kind === "task" ? "Task" : "Note"} · ${date}`,
+      `${note.kind === "task" ? "Task" : "Note"}${note.title ? "" : " · No title"} · ${date}`,
     ),
-    el("h3", "", note.title),
   );
+  if (note.title) panel.append(el("h3", "", note.title));
   if (options.includeTags && note.tags.length) {
     const tags = el("div", "preview-tags");
     tags.setAttribute("aria-label", "Tags");

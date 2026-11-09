@@ -1,3 +1,5 @@
+import { noteLabel } from "../src/lib/titles";
+import { parse as parseYaml } from "yaml";
 import { describe, expect, it } from "vitest";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { readFiles, safePath } from "../src/lib/archive";
@@ -387,10 +389,10 @@ describe("compatibility boundaries", () => {
   });
 });
 
-describe("readable titles for unnamed Anytype objects", () => {
+describe("blank source titles with readable review labels", () => {
   const objectId = "bafyrei" + "a".repeat(52);
 
-  it("uses the first text in document order instead of a CID filename and keeps the body", async () => {
+  it("preserves a blank title while labeling the note from its first text in document order", async () => {
     const dataset = parseExport({
       [`${objectId}.pb.json`]: legacy(
         objectId,
@@ -405,13 +407,21 @@ describe("readable titles for unnamed Anytype objects", () => {
         ],
       ),
     });
-    expect(dataset.notes[0].title).toBe("À lire");
+    expect(dataset.notes[0].title).toBe("");
+    expect(noteLabel(dataset.notes[0])).toBe("À lire");
     expect(dataset.notes[0].key).toBe(objectId);
     expect(plain(dataset.notes[0].delta)).toBe(
       "À lire\nVoir les saves sur reddit\n",
     );
     const result = await createArchive(dataset, options(dataset));
-    expect(result.manifest.notes[0].title).toBe("À lire");
+    expect(result.manifest.notes[0].title).toBe("");
+    const zip = unzipSync(result.bytes);
+    const markdown = strFromU8(
+      Object.entries(zip).find(([path]) => path.startsWith("markdown/"))![1],
+    );
+    expect(parseYaml(markdown.split("---")[1]).title).toBe("");
+    expect(markdown).not.toMatch(/^# /m);
+    expect(markdown).toContain("## À lire");
     expect(result.manifest.notes[0].content).toContain(
       "Voir les saves sur reddit",
     );
@@ -446,7 +456,7 @@ describe("readable titles for unnamed Anytype objects", () => {
     expect(dataset.notes[0].title).toBe("Original name");
   });
 
-  it("uses a readable title in the generated completed-task checkbox", () => {
+  it("keeps an unnamed task title blank while retaining its completion state", () => {
     const dataset = parseExport({
       [`${objectId}.pb.json`]: legacy(
         objectId,
@@ -454,23 +464,21 @@ describe("readable titles for unnamed Anytype objects", () => {
         [{ id: "body", text: { text: "Book a table", style: "Paragraph" } }],
       ),
     });
-    expect(dataset.notes[0].title).toBe("Book a table");
-    expect(dataset.notes[0].delta.ops[0].insert).toBe("Book a table");
-    expect(dataset.notes[0].delta.ops[1].attributes?.list).toBe("checked");
-    expect(plain(dataset.notes[0].delta)).toBe("Book a table\nBook a table\n");
+    expect(dataset.notes[0].title).toBe("");
+    expect(noteLabel(dataset.notes[0])).toBe("Book a table");
+    expect(dataset.notes[0].delta.ops[0].attributes?.list).toBe("checked");
+    expect(plain(dataset.notes[0].delta)).toBe("\nBook a table\n");
   });
 
-  it("gives an empty object a neutral title instead of its ID", () => {
+  it("keeps empty objects untitled and uses a neutral review label", () => {
     const dataset = parseExport({
       [`${objectId}.pb.json`]: legacy(objectId, {}, []),
     });
-    expect(dataset.notes[0].title).toBe("Untitled");
-    expect(
-      dataset.warnings.some((warning) => warning.includes("Untitled")),
-    ).toBe(true);
+    expect(dataset.notes[0].title).toBe("");
+    expect(noteLabel(dataset.notes[0])).toBe("Untitled");
   });
 
-  it("derives AnyBlock 2 titles from formatted text without copying markup", () => {
+  it("labels unnamed AnyBlock 2 notes without assigning them a title", () => {
     const dataset = parseExport({
       [`${objectId}.anyblock.json`]: json({
         formatVersion: "2.0",
@@ -485,31 +493,66 @@ describe("readable titles for unnamed Anytype objects", () => {
         ],
       }),
     });
-    expect(dataset.notes[0].title).toBe("A reading list");
+    expect(dataset.notes[0].title).toBe("");
+    expect(noteLabel(dataset.notes[0])).toBe("A reading list");
     expect(plain(dataset.notes[0].delta)).toBe("A reading list\n");
   });
 
-  it("bounds inferred titles without shortening the original content", () => {
+  it("bounds review labels without changing the blank title or shortening the body", () => {
     const body = "A long note " + "é".repeat(150);
     const dataset = parseExport({
       [`${objectId}.pb.json`]: legacy(objectId, {}, [
         { id: "body", text: { text: body } },
       ]),
     });
-    expect(dataset.notes[0].title.length).toBeLessThanOrEqual(121);
-    expect(dataset.notes[0].title.endsWith("…")).toBe(true);
+    expect(dataset.notes[0].title).toBe("");
+    expect(noteLabel(dataset.notes[0]).length).toBeLessThanOrEqual(121);
+    expect(noteLabel(dataset.notes[0]).endsWith("…")).toBe(true);
     expect(plain(dataset.notes[0].delta)).toBe(body + "\n");
   });
 
-  it("uses content for unnamed Markdown with an ID filename", () => {
+  it("preserves an explicit blank title in Markdown with an ID filename", () => {
     const dataset = parseExport({
       [`${objectId}.md`]: strToU8(
         "---\nname: ''\n---\n\nÀ **lire**\n\nVoir les saves sur reddit",
       ),
     });
-    expect(dataset.notes[0].title).toBe("À lire");
+    expect(dataset.notes[0].title).toBe("");
+    expect(noteLabel(dataset.notes[0])).toBe("À lire");
     expect(plain(dataset.notes[0].delta)).toBe(
       "À lire\nVoir les saves sur reddit\n",
     );
   });
+});
+
+it("round-trips an unnamed note through generated Markdown without adding a heading or title", async () => {
+  const dataset = parseExport({
+    "note.pb.json": legacy("roundtrip", { resolvedLayout: 9 }, [
+      {
+        id: "body",
+        text: { text: "A body, not a title.", style: "Paragraph" },
+      },
+    ]),
+  });
+  const result = await createArchive(dataset, options(dataset));
+  const files = unzipSync(result.bytes);
+  const entry = Object.entries(files).find(([path]) =>
+    path.startsWith("markdown/"),
+  )!;
+  const markdown = strFromU8(entry[1]);
+  expect(markdown).not.toMatch(/^# /m);
+  expect(result.manifest.notes[0].title).toBe("");
+  const restored = parseExport({ [entry[0]]: entry[1] });
+  expect(restored.notes[0].title).toBe("");
+  expect(plain(restored.notes[0].delta)).toBe("A body, not a title.\n");
+});
+
+it("keeps an original heading as body content when Markdown explicitly declares no title", () => {
+  const dataset = parseExport({
+    "a-heading.md": strToU8(
+      '---\ntitle: ""\n---\n# A body heading\n\nOriginal text',
+    ),
+  });
+  expect(dataset.notes[0].title).toBe("");
+  expect(plain(dataset.notes[0].delta)).toBe("A body heading\nOriginal text\n");
 });

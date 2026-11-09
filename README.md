@@ -28,7 +28,7 @@ A browser-only converter for moving notes and tasks from [Anytype](https://anyty
 | Tables                                                  | Markdown tables become text; Any-Block tables/views produce warnings and preserve supported child text |
 | Set definitions, types, properties and options          | Supporting metadata; excluded from the note selection                                                  |
 
-Unnamed objects use a title block or their first text line as a readable title, keeping the original body. Storage IDs are never used as fallback titles; empty objects are labeled “Untitled”. Conversion notes summarize inferred titles.
+Unnamed objects keep an empty title in Anchor. The review list and Markdown filenames use the first text line only as a label; it is never assigned as the note title. The preview marks these objects “No title”, and Markdown copies declare an empty title without adding a heading. Original body headings and text are kept. Existing names and explicit title blocks are preserved.
 
 The converter reads legacy `snapshot.data` JSON exports and the AnyBlock 2 JSON document format. It prefers structured JSON when both structured objects and Markdown appear in one export. Tag names are resolved from exported relation options or inline named properties. It does not recreate Set filters, arbitrary custom properties, object relationships, reminders, sharing, history, or original inline attachment placement. Some AnyBlock 2 inline HTML marks remain visible text. Object links continue to point to Anytype; Markdown local-document links become text. Review the conversion notes before importing.
 
