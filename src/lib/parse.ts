@@ -495,9 +495,12 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
       }
     }
     for (const message of contextWarnings)
-      warn(`${title || "Unnamed note"}: ${message}`);
+      warn(
+        `${title || contentLabel(ops) || `Untitled (${basename(path)})`}: ${message}`,
+      );
     addNote({
       key: valueString(raw.id ?? p.id, path),
+      sourcePath: path,
       title,
       kind,
       typeName,
@@ -587,7 +590,9 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
         contextWarnings.push(message),
       );
       for (const message of contextWarnings)
-        warn(`${title || "Unnamed note"}: ${message}`);
+        warn(
+          `${title || contentLabel(delta.ops) || `Untitled (${basename(path)})`}: ${message}`,
+        );
       if (kind === "task")
         delta.ops.unshift(...(title ? [{ insert: title }] : []), {
           insert: "\n",
@@ -597,6 +602,7 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
         });
       addNote({
         key: path,
+        sourcePath: path,
         title,
         kind,
         typeName,

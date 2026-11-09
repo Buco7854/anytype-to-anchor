@@ -34,7 +34,9 @@ Unnamed objects keep an empty title in Anchor. The review list uses the first te
 
 The converter reads legacy `snapshot.data` JSON exports and the AnyBlock 2 JSON document format. It prefers structured JSON when both structured objects and Markdown appear in one export. Tag names are resolved from exported relation options or inline named properties. It does not recreate Set filters, arbitrary custom properties, object relationships, reminders, sharing, history, or original inline attachment placement. Some AnyBlock 2 inline HTML marks remain visible text. Object links continue to point to Anytype; Markdown local-document links become text. Review the conversion notes before importing.
 
-Code blocks keep their literal text and multiline structure in both the Anchor ZIP and Markdown copies. Inline code spans are plain text in Anchor; color-mark warnings refer to text/background colors, not to code-block support.
+Conversion warnings identify notes by the label shown in the review list. If an unnamed note has no readable body, its source filename is shown instead; you can search by that filename or object ID. These labels never become exported titles.
+
+The preview shows consecutive code lines in one continuous, keyboard-scrollable block. Code blocks keep their literal text and multiline structure in both the Anchor ZIP and Markdown copies. Inline code spans are plain text in Anchor; color-mark warnings refer to text/background colors, not to code-block support.
 
 Input limits: 100 MB compressed, 250 MB expanded, 25 MB per file, 10,000 entries. Large exports should be split into smaller selections. Anchor’s content limit is checked before download; tag limits are checked when tags are included. Unsafe paths and malformed archives are rejected. Files are handled in a Web Worker to keep the interface responsive.
 

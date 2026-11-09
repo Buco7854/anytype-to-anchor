@@ -162,7 +162,7 @@ function visibleNotes(): Note[] {
     (note) =>
       options.kinds.includes(note.kind) &&
       (options.includeArchived || !note.archived) &&
-      `${noteLabel(note)} ${note.tags.join(" ")} ${note.typeName}`
+      `${noteLabel(note)} ${note.tags.join(" ")} ${note.typeName} ${note.sourcePath ?? ""} ${note.key}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
@@ -325,10 +325,28 @@ function renderPreview() {
   }
   const content = el("div", "preview-content");
   let current = el("p", "preview-line");
+  let codeBlock: HTMLElement | undefined;
   const orderedCounts = new Map<number, number>();
   const addLine = (attrs: Attributes) => {
+    if (attrs["code-block"]) {
+      if (!codeBlock) {
+        const pre = el("pre", "preview-code");
+        pre.tabIndex = 0;
+        pre.setAttribute("role", "group");
+        pre.setAttribute("aria-label", "Code block");
+        codeBlock = el("code");
+        pre.append(codeBlock);
+        content.append(pre);
+      }
+      codeBlock.append(
+        document.createTextNode((current.textContent ?? "") + "\n"),
+      );
+      current = el("p", "preview-line");
+      orderedCounts.clear();
+      return;
+    }
+    codeBlock = undefined;
     if (attrs.header) current.classList.add("header");
-    if (attrs["code-block"]) current.classList.add("code");
     if (attrs.blockquote) current.classList.add("quote");
     if (attrs.list === "checked" || attrs.list === "unchecked") {
       const check = el("input", "preview-checkbox");

@@ -4,6 +4,8 @@ export type Delta = { ops: Op[] };
 export type Attachment = { path: string; name: string; mime: string };
 export type Note = {
   key: string;
+  /** Export filename retained for finding a note referenced by a conversion warning. */
+  sourcePath?: string;
   /** The source title; empty for unnamed notes. Never use a review label here. */
   title: string;
   kind: "note" | "task";

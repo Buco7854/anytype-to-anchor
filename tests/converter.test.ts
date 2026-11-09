@@ -667,3 +667,74 @@ describe("code blocks and inline-format warnings", () => {
     expect(plain(dataset.notes[0].delta)).toBe("Colored text\n");
   });
 });
+
+describe("warnings that identify unnamed notes", () => {
+  it("uses each note's review label in conversion warnings without assigning a title", async () => {
+    const dataset = parseExport({
+      "reading.pb.json": legacy("reading", { resolvedLayout: 9 }, [
+        {
+          id: "p",
+          text: {
+            text: "Reading list",
+            marks: { marks: [{ type: "Keyboard", range: { from: 0, to: 7 } }] },
+          },
+        },
+      ]),
+      "links.pb.json": legacy("links", { resolvedLayout: 9 }, [
+        { id: "p", text: { text: "Reference links" } },
+        { id: "link", link: { targetBlockId: "another-object" } },
+      ]),
+      "project.pb.json": legacy("project", { resolvedLayout: 9 }, [
+        { id: "p", text: { text: "Project overview" } },
+        { id: "view", dataview: {} },
+      ]),
+    });
+    expect(dataset.notes.every((note) => note.title === "")).toBe(true);
+    expect(
+      dataset.warnings.some((warning) =>
+        warning.startsWith("Reading list: Inline code"),
+      ),
+    ).toBe(true);
+    expect(
+      dataset.warnings.some((warning) =>
+        warning.startsWith("Reference links: Object links"),
+      ),
+    ).toBe(true);
+    expect(
+      dataset.warnings.some((warning) =>
+        warning.startsWith("Project overview: Tables and views"),
+      ),
+    ).toBe(true);
+    expect(
+      dataset.warnings.some((warning) => warning.startsWith("Unnamed note:")),
+    ).toBe(false);
+    const archive = await createArchive(dataset, options(dataset));
+    expect(archive.manifest.warnings).toEqual(dataset.warnings);
+    expect(archive.manifest.notes.every((note) => note.title === "")).toBe(
+      true,
+    );
+  });
+
+  it("uses the source filename when an unnamed object has no readable body", () => {
+    const dataset = parseExport({
+      "empty-view.pb.json": legacy("empty-view", {}, [
+        { id: "view", dataview: {} },
+      ]),
+    });
+    expect(dataset.notes[0].title).toBe("");
+    expect(dataset.notes[0].sourcePath).toBe("empty-view.pb.json");
+    expect(dataset.warnings[0]).toMatch(
+      /^Untitled \(empty-view\.pb\.json\): Tables and views/,
+    );
+  });
+
+  it("also identifies unnamed Markdown notes in table warnings", () => {
+    const dataset = parseExport({
+      "note.md": strToU8(
+        '---\ntitle: ""\n---\n# Research notes\n\n| A | B |\n| - | - |\n| 1 | 2 |',
+      ),
+    });
+    expect(dataset.notes[0].title).toBe("");
+    expect(dataset.warnings[0]).toMatch(/^Research notes: Tables/);
+  });
+});

@@ -315,23 +315,19 @@ test("dark theme keeps empty, loaded, success, warning, error, and guide states 
   await downloadPromise;
   await expect(page.locator("#download-success")).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page
-    .locator("#file-input")
-    .setInputFiles({
-      name: "table.md",
-      mimeType: "text/markdown",
-      buffer: Buffer.from("# Note\n\n| A | B |\n| - | - |\n| 1 | 2 |"),
-    });
+  await page.locator("#file-input").setInputFiles({
+    name: "table.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("# Note\n\n| A | B |\n| - | - |\n| 1 | 2 |"),
+  });
   await expect(page.locator("#warnings")).toBeVisible();
   await page.locator("#warnings-summary").click();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page
-    .locator("#file-input")
-    .setInputFiles({
-      name: "broken.zip",
-      mimeType: "application/zip",
-      buffer: Buffer.from("broken"),
-    });
+  await page.locator("#file-input").setInputFiles({
+    name: "broken.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from("broken"),
+  });
   await expect(page.getByRole("alert")).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Export & import guide" }).click();
@@ -358,4 +354,116 @@ test("theme switching and conversion work when browser storage is disabled", asy
   await expect(page.locator("#selection-summary")).toHaveText(
     "2 notes and 2 tasks selected",
   );
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`multiline code renders as continuous scrollable blocks in ${colorScheme} mode`, async ({
+    page,
+  }) => {
+    const { default: AxeBuilder } = await import("@axe-core/playwright");
+    await page.emulateMedia({ colorScheme });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    const first =
+      'const value = "**literal**";\n\n  console.log(value);\n// ' +
+      "long-code-line-".repeat(25) +
+      "\n<script>window.previewCodeExecuted = true;</script>";
+    const second = 'print("A separate block")\nprint("Second line")';
+    await page.locator("#file-input").setInputFiles({
+      name: "Code example.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from(
+        "# Code example\n\n```js\n" +
+          first +
+          "\n```\n\nA paragraph between blocks.\n\n```python\n" +
+          second +
+          "\n```",
+      ),
+    });
+    const blocks = page.getByRole("group", {
+      name: "Code block",
+      exact: true,
+    });
+    await expect(blocks).toHaveCount(2);
+    expect(await blocks.nth(0).locator("code").textContent()).toBe(
+      first + "\n",
+    );
+    expect(await blocks.nth(1).locator("code").textContent()).toBe(
+      second + "\n",
+    );
+    await expect(page.locator(".preview-line.code")).toHaveCount(0);
+    expect(
+      await page.evaluate(() => (window as any).previewCodeExecuted),
+    ).toBeUndefined();
+    expect(
+      await blocks
+        .first()
+        .evaluate((node) => node.scrollWidth > node.clientWidth),
+    ).toBe(true);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await blocks.first().focus();
+    await expect(blocks.first()).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect
+      .poll(() => blocks.first().evaluate((node) => node.scrollLeft))
+      .toBeGreaterThan(0);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await blocks.first().evaluate((node) => {
+      node.scrollLeft = 0;
+    });
+    await page.screenshot({
+      path: `test-results/code-block-${colorScheme}.png`,
+      fullPage: true,
+    });
+  });
+}
+
+test("warnings identify unnamed notes and their source filenames can be searched", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const object = (id: string, blocks: unknown[]) =>
+    strToU8(
+      JSON.stringify({
+        sbType: "Page",
+        snapshot: { data: { details: { id, resolvedLayout: 9 }, blocks } },
+      }),
+    );
+  const archive = zipSync({
+    "reading.pb.json": object("reading", [
+      {
+        id: "p",
+        text: {
+          text: "Reading list",
+          marks: { marks: [{ type: "Keyboard", range: { from: 0, to: 7 } }] },
+        },
+      },
+    ]),
+    "empty-view.pb.json": object("empty-view", [{ id: "view", dataview: {} }]),
+  });
+  await page
+    .locator("#file-input")
+    .setInputFiles({
+      name: "notes.zip",
+      mimeType: "application/zip",
+      buffer: Buffer.from(archive),
+    });
+  await expect(page.locator("#warnings")).toBeVisible();
+  await page.locator("#warnings-summary").click();
+  await expect(page.locator("#warnings-list")).toContainText(
+    "Reading list: Inline code",
+  );
+  await expect(page.locator("#warnings-list")).toContainText(
+    "Untitled (empty-view.pb.json): Tables and views",
+  );
+  await page.getByRole("searchbox").fill("Reading list");
+  await expect(page.locator(".note-row-title")).toHaveText("Reading list");
+  await page.getByRole("searchbox").fill("empty-view.pb.json");
+  await expect(page.locator(".note-row-title")).toHaveText("Untitled");
+  await expect(page.locator(".preview-meta")).toContainText("No title");
+  await expect(page.locator("#note-preview h3")).toHaveCount(0);
 });
