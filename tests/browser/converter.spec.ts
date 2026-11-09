@@ -229,3 +229,133 @@ test("unnamed notes have readable review labels but no title in the preview or A
   expect(manifest.notes[0].content).toContain("A list of books to revisit.");
   expect(manifest.notes[0].tagIds).toHaveLength(1);
 });
+
+test("theme follows the device, toggles by keyboard, and remembers an explicit choice", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  const toggle = page.getByRole("button", { name: "Dark theme", exact: true });
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await toggle.focus();
+  await page.keyboard.press("Space");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  expect(
+    await page.evaluate(() => localStorage.getItem("anytype-anchor-theme")),
+  ).toBe("light");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await toggle.click();
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.reload();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+    "content",
+    "#111111",
+  );
+});
+
+for (const width of [1440, 768, 390, 320]) {
+  test(`dark theme reflows and converts at ${width}px`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await page.evaluate(() => document.fonts.ready);
+    await expect(page.locator("html")).toHaveCSS(
+      "background-color",
+      "rgb(17, 17, 17)",
+    );
+    await page.screenshot({
+      path: `test-results/dark-empty-${width}.png`,
+      fullPage: true,
+    });
+    await page.getByRole("button", { name: "Try an example" }).click();
+    await expect(page.locator("#selection-summary")).toHaveText(
+      "2 notes and 2 tasks selected",
+    );
+    await expect(page.locator("#download")).toHaveCSS(
+      "background-color",
+      "rgb(237, 237, 237)",
+    );
+    await page.screenshot({
+      path: `test-results/dark-loaded-${width}.png`,
+      fullPage: true,
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    const promise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download Anchor ZIP" }).click();
+    const download = await promise;
+    const zip = unzipSync(
+      new Uint8Array(await readFile((await download.path())!)),
+    );
+    expect(JSON.parse(strFromU8(zip["manifest.json"])).notes).toHaveLength(4);
+  });
+}
+
+test("dark theme keeps empty, loaded, success, warning, error, and guide states accessible", async ({
+  page,
+}) => {
+  const { default: AxeBuilder } = await import("@axe-core/playwright");
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await page.goto("/");
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.getByRole("button", { name: "Try an example" }).click();
+  await expect(page.locator("#loaded-review")).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download Anchor ZIP" }).click();
+  await downloadPromise;
+  await expect(page.locator("#download-success")).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page
+    .locator("#file-input")
+    .setInputFiles({
+      name: "table.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("# Note\n\n| A | B |\n| - | - |\n| 1 | 2 |"),
+    });
+  await expect(page.locator("#warnings")).toBeVisible();
+  await page.locator("#warnings-summary").click();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page
+    .locator("#file-input")
+    .setInputFiles({
+      name: "broken.zip",
+      mimeType: "application/zip",
+      buffer: Buffer.from("broken"),
+    });
+  await expect(page.getByRole("alert")).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.getByRole("button", { name: "Export & import guide" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("theme switching and conversion work when browser storage is disabled", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "localStorage", {
+      get() {
+        throw new DOMException("Storage is disabled", "SecurityError");
+      },
+    });
+  });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.getByRole("button", { name: "Dark theme", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.getByRole("button", { name: "Try an example" }).click();
+  await expect(page.locator("#selection-summary")).toHaveText(
+    "2 notes and 2 tasks selected",
+  );
+});

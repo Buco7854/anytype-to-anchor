@@ -1,4 +1,5 @@
 import "./style.css";
+import { initTheme } from "./theme";
 import { noteLabel } from "./lib/titles";
 import { MAX_INPUT, type InputFile } from "./lib/archive";
 import { ALLOWED_MIME, selectedNotes } from "./lib/convert";
@@ -13,6 +14,7 @@ import { exampleFiles } from "./sample";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
+initTheme();
 const worker = new Worker(new URL("./worker.ts", import.meta.url), {
   type: "module",
 });

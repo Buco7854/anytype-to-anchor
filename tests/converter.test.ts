@@ -556,3 +556,113 @@ it("keeps an original heading as body content when Markdown explicitly declares 
   expect(dataset.notes[0].title).toBe("");
   expect(plain(dataset.notes[0].delta)).toBe("A body heading\nOriginal text\n");
 });
+
+describe("code blocks and inline-format warnings", () => {
+  const code = 'const value = "**literal**";\nconsole.log(value);';
+  const codeLines = (delta: {
+    ops: { insert: string; attributes?: Record<string, unknown> }[];
+  }) =>
+    delta.ops
+      .filter((op) => op.attributes?.["code-block"])
+      .reduce((sum, op) => sum + op.insert.split("\n").length - 1, 0);
+
+  for (const style of ["Code", 6]) {
+    it(`preserves legacy ${style} blocks and emits no inline-format warning`, async () => {
+      const dataset = parseExport({
+        "code.pb.json": legacy("code", { name: "Code example" }, [
+          {
+            id: "code",
+            text: {
+              text: code,
+              style,
+              marks: {
+                marks: [
+                  { type: "Keyboard", range: { from: 0, to: code.length } },
+                ],
+              },
+            },
+          },
+        ]),
+      });
+      expect(plain(dataset.notes[0].delta)).toBe(code + "\n");
+      expect(codeLines(dataset.notes[0].delta)).toBe(2);
+      expect(dataset.warnings).toEqual([]);
+      const result = await createArchive(dataset, options(dataset));
+      expect(codeLines(JSON.parse(result.manifest.notes[0].content))).toBe(2);
+    });
+  }
+
+  it("preserves AnyBlock 2 code without treating its Markdown characters as formatting", () => {
+    const dataset = parseExport({
+      "code.anyblock.json": json({
+        formatVersion: "2.0",
+        id: "code",
+        properties: { Name: "Code example" },
+        blocks: [{ id: "code", type: "code", language: "js", text: code }],
+      }),
+    });
+    expect(plain(dataset.notes[0].delta)).toBe(code + "\n");
+    expect(codeLines(dataset.notes[0].delta)).toBe(2);
+    expect(dataset.warnings).toEqual([]);
+  });
+
+  it("round-trips multiline code with literal formatting and backticks through generated Markdown", async () => {
+    const original =
+      code + '\nconst slash = "\\path";\n```\nA Markdown fence inside code';
+    const dataset = parseExport({
+      "code.pb.json": legacy("code", { name: "Code example" }, [
+        { id: "code", text: { text: original, style: "Code" } },
+      ]),
+    });
+    const result = await createArchive(dataset, options(dataset));
+    const files = unzipSync(result.bytes);
+    const entry = Object.entries(files).find(([path]) =>
+      path.startsWith("markdown/"),
+    )!;
+    const markdown = strFromU8(entry[1]);
+    expect(markdown).toContain("````\n" + original + "\n````");
+    const restored = parseExport({ [entry[0]]: entry[1] });
+    expect(plain(restored.notes[0].delta)).toBe(original + "\n");
+    expect(codeLines(restored.notes[0].delta)).toBe(5);
+    expect(restored.warnings).toEqual([]);
+  });
+
+  it("distinguishes unsupported inline code from supported code blocks", () => {
+    const dataset = parseExport({
+      "inline.pb.json": legacy("inline", { name: "Inline example" }, [
+        {
+          id: "p",
+          text: {
+            text: "A command",
+            marks: { marks: [{ type: "Keyboard", range: { from: 2, to: 9 } }] },
+          },
+        },
+      ]),
+    });
+    expect(dataset.warnings).toEqual([
+      "Inline example: Inline code spans are kept as plain text in Anchor. Code blocks retain their formatting.",
+    ]);
+    expect(plain(dataset.notes[0].delta)).toBe("A command\n");
+  });
+
+  it("does not suggest a code limitation when only text colors are omitted", () => {
+    const dataset = parseExport({
+      "color.pb.json": legacy("color", { name: "Color example" }, [
+        {
+          id: "p",
+          text: {
+            text: "Colored text",
+            marks: {
+              marks: [
+                { type: "TextColor", param: "red", range: { from: 0, to: 7 } },
+              ],
+            },
+          },
+        },
+      ]),
+    });
+    expect(dataset.warnings[0]).toContain("Text or background colors");
+    expect(dataset.warnings[0]).not.toContain("code");
+    expect(plain(dataset.notes[0].delta)).toBe("Colored text\n");
+  });
+});

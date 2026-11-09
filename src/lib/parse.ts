@@ -353,11 +353,13 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
               )[type];
               if (key) formats[key] = true;
               else if (type === "Link") formats.link = valueString(mark.param);
-              else if (
-                ["BackgroundColor", "TextColor", "Keyboard"].includes(type)
-              )
+              else if (type === "Keyboard")
                 contextWarn(
-                  "Some text colors or inline code styling are not supported by Anchor; the text is kept.",
+                  "Inline code spans are kept as plain text in Anchor. Code blocks retain their formatting.",
+                );
+              else if (["BackgroundColor", "TextColor"].includes(type))
+                contextWarn(
+                  "Text or background colors are omitted because Anchor does not support these color marks; the text is kept.",
                 );
             }
             push(inlineOps, value.slice(start, end), formats);

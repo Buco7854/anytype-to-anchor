@@ -1,6 +1,6 @@
 # Anytype → Anchor
 
-A browser-only converter for moving notes and tasks from [Anytype](https://anytype.io) to [ZhFahim/anchor](https://github.com/ZhFahim/anchor). Choose an export, review your notes, and download an Anchor backup ZIP. Nothing is uploaded, stored in browser storage, or sent to an API. Fonts and dependencies are bundled with the site.
+A browser-only converter for moving notes and tasks from [Anytype](https://anytype.io) to [ZhFahim/anchor](https://github.com/ZhFahim/anchor). Choose an export, review your notes, and download an Anchor backup ZIP. Notes and files are never uploaded, stored in browser storage, or sent to an API. The only saved preference is your light/dark theme. Fonts and dependencies are bundled with the site.
 
 ## Use it
 
@@ -9,6 +9,8 @@ A browser-only converter for moving notes and tasks from [Anytype](https://anyty
 3. Choose the ZIP on this page. You can also choose individual `.pb.json`, `.anyblock.json`, `.json`, `.md`, or `.markdown` files. Use a ZIP when you need attachments and folder paths.
 4. Review your notes. Toggle tags, attachments, or archived objects; limit conversion to notes or tasks; search and deselect individual objects. Search filters the list, not the download selection. The summary states exactly how many objects are selected.
 5. Download **Anchor ZIP**. In Anchor, open **Settings → Import / Export → Import notes**, choose the ZIP, and select **Anchor backup** if asked. Review and confirm. Use an Anchor version with the native backup importer. Keep **Skip existing** on to avoid duplicates.
+
+The theme follows your device setting initially. Use the sun/moon button in the header to switch between light and dark; your choice is remembered on this device. Theme switching also works when browser storage is disabled.
 
 “Try an example” explicitly loads four fictional local notes/tasks so you can test the interface without supplying an export.
 
@@ -31,6 +33,8 @@ A browser-only converter for moving notes and tasks from [Anytype](https://anyty
 Unnamed objects keep an empty title in Anchor. The review list and Markdown filenames use the first text line only as a label; it is never assigned as the note title. The preview marks these objects “No title”, and Markdown copies declare an empty title without adding a heading. Original body headings and text are kept. Existing names and explicit title blocks are preserved.
 
 The converter reads legacy `snapshot.data` JSON exports and the AnyBlock 2 JSON document format. It prefers structured JSON when both structured objects and Markdown appear in one export. Tag names are resolved from exported relation options or inline named properties. It does not recreate Set filters, arbitrary custom properties, object relationships, reminders, sharing, history, or original inline attachment placement. Some AnyBlock 2 inline HTML marks remain visible text. Object links continue to point to Anytype; Markdown local-document links become text. Review the conversion notes before importing.
+
+Code blocks keep their literal text and multiline structure in both the Anchor ZIP and Markdown copies. Inline code spans are plain text in Anchor; color-mark warnings refer to text/background colors, not to code-block support.
 
 Input limits: 100 MB compressed, 250 MB expanded, 25 MB per file, 10,000 entries. Large exports should be split into smaller selections. Anchor’s content limit is checked before download; tag limits are checked when tags are included. Unsafe paths and malformed archives are rejected. Files are handled in a Web Worker to keep the interface responsive.
 

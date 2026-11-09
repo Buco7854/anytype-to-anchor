@@ -156,42 +156,69 @@ export function markdownToDelta(
 }
 
 export function deltaToMarkdown(delta: Delta): string {
-  let text = "";
-  let current = "";
-  let ordered = 0;
+  const lines: { ops: Op[]; attrs: Attributes }[] = [];
+  let current: Op[] = [];
   for (const op of delta.ops) {
-    const attrs = op.attributes ?? {};
-    const parts = op.insert.split("\n");
-    parts.forEach((part, index) => {
+    op.insert.split("\n").forEach((part, index) => {
       if (index) {
-        let prefix = "";
-        const indent = "  ".repeat(Number(attrs.indent) || 0);
-        if (attrs.header) prefix = "#".repeat(Number(attrs.header)) + " ";
-        else if (attrs.list) {
-          prefix =
-            indent +
-            (attrs.list === "checked"
-              ? "- [x] "
-              : attrs.list === "unchecked"
-                ? "- [ ] "
-                : attrs.list === "ordered"
-                  ? `${++ordered}. `
-                  : "- ");
-        } else if (attrs.blockquote) prefix = "> ";
-        if (attrs["code-block"]) text += "```\n" + current + "\n```\n";
-        else text += prefix + current + "\n";
-        current = "";
-        if (attrs.list !== "ordered") ordered = 0;
+        lines.push({ ops: current, attrs: op.attributes ?? {} });
+        current = [];
       }
-      if (!part) return;
-      let value = part.replace(/([\\`*_[\]<>])/g, "\\$1");
-      if (attrs.bold) value = `**${value}**`;
-      if (attrs.italic) value = `*${value}*`;
-      if (attrs.strike) value = `~~${value}~~`;
-      if (attrs.link)
-        value = `[${value}](${String(attrs.link).replace(/[()\s]/g, (char) => encodeURIComponent(char))})`;
-      current += value;
+      if (part) current.push({ insert: part, attributes: op.attributes });
     });
   }
-  return text + current;
+  if (current.length) lines.push({ ops: current, attrs: {} });
+
+  let text = "";
+  let ordered = 0;
+  for (let index = 0; index < lines.length; index++) {
+    const { ops, attrs } = lines[index];
+    if (attrs["code-block"]) {
+      const code: string[] = [];
+      do {
+        code.push(lines[index].ops.map((op) => op.insert).join(""));
+        index++;
+      } while (index < lines.length && lines[index].attrs["code-block"]);
+      index--;
+      const raw = code.join("\n");
+      // A fence longer than any backtick run also preserves Markdown examples as code.
+      let fenceLength = 3;
+      for (const match of raw.matchAll(/`+/g)) {
+        fenceLength = Math.max(fenceLength, match[0].length + 1);
+      }
+      const fence = "`".repeat(fenceLength);
+      text += `${fence}\n${raw}\n${fence}\n`;
+      ordered = 0;
+      continue;
+    }
+    let prefix = "";
+    const indent = "  ".repeat(Number(attrs.indent) || 0);
+    if (attrs.header) prefix = "#".repeat(Number(attrs.header)) + " ";
+    else if (attrs.list)
+      prefix =
+        indent +
+        (attrs.list === "checked"
+          ? "- [x] "
+          : attrs.list === "unchecked"
+            ? "- [ ] "
+            : attrs.list === "ordered"
+              ? `${++ordered}. `
+              : "- ");
+    else if (attrs.blockquote) prefix = "> ";
+    if (attrs.list !== "ordered") ordered = 0;
+    const content = ops
+      .map((op) => {
+        const marks = op.attributes ?? {};
+        let value = op.insert.replace(/([\\`*_[\]<>])/g, "\\$1");
+        if (marks.bold) value = `**${value}**`;
+        if (marks.italic) value = `*${value}*`;
+        if (marks.strike) value = `~~${value}~~`;
+        if (marks.link)
+          value = `[${value}](${String(marks.link).replace(/[()\s]/g, (char) => encodeURIComponent(char))})`;
+        return value;
+      })
+      .join("");
+    text += prefix + content + "\n";
+  }
+  return text;
 }
