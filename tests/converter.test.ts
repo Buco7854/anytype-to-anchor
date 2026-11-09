@@ -539,6 +539,7 @@ it("round-trips an unnamed note through generated Markdown without adding a head
   const entry = Object.entries(files).find(([path]) =>
     path.startsWith("markdown/"),
   )!;
+  expect(entry[0]).toMatch(/\/Untitled\.md$/);
   const markdown = strFromU8(entry[1]);
   expect(markdown).not.toMatch(/^# /m);
   expect(result.manifest.notes[0].title).toBe("");

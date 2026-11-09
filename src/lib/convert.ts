@@ -149,10 +149,14 @@ export async function createArchive(
       created: note.createdAt ?? now,
       modified: note.updatedAt ?? note.createdAt ?? now,
     });
-    files[`markdown/${filename(noteLabel(note))}-${id.slice(0, 8)}.md`] =
-      strToU8(
-        `---\n${metadata}---\n\n${note.title ? `# ${note.title}\n\n` : ""}${deltaToMarkdown(note.delta)}`,
-      );
+    // Anchor's standalone Markdown importer treats the exact stem "Untitled" as blank.
+    // A per-note folder keeps those filenames unique without turning IDs into titles.
+    const markdownPath = note.title
+      ? `markdown/${filename(note.title)}-${id.slice(0, 8)}.md`
+      : `markdown/${id}/Untitled.md`;
+    files[markdownPath] = strToU8(
+      `---\n${metadata}---\n\n${note.title ? `# ${note.title}\n\n` : ""}${deltaToMarkdown(note.delta)}`,
+    );
   }
   const manifest = {
     format: "anchor-export",
@@ -174,7 +178,7 @@ export async function createArchive(
   };
   files["manifest.json"] = strToU8(JSON.stringify(manifest, null, 2));
   files["conversion-report.md"] = strToU8(
-    `# Anytype → Anchor\n\nConverted ${notes.length} objects with ${tags.length} tags and ${manifest.counts.attachments} importable attachments.\n${preserved} unsupported attachments preserved separately. ${dataset.skipped} supporting or non-content objects skipped.\n\n## Import into Anchor\n\nOpen Anchor → Settings → Import / Export → Import notes. Select this ZIP and choose Anchor backup if asked. Review the import and keep “Skip existing” enabled to avoid duplicates. Requires an Anchor version with the Anchor backup importer.\n\nThe markdown/ folder contains readable copies. Import the ZIP once; do not also import these copies.\n\nUnnamed notes retain an empty title; the review list and filenames use a content label only. Tasks become individual notes with a checked or unchecked first line. Attachment placeholders identify the original location; Anchor displays attached media separately. Missing dates use the conversion time. Tags are ${options.includeTags ? "included" : "omitted"}; tags written inside body text remain part of the text.\n\n## Conversion notes\n\n${warnings.length ? warnings.map((message) => `- ${message.replace(/\n/g, " ")}`).join("\n") : "No conversion warnings."}\n\nObject relationships, Set filters, sharing, reminders, and version history are not recreated.\n`,
+    `# Anytype → Anchor\n\nConverted ${notes.length} objects with ${tags.length} tags and ${manifest.counts.attachments} importable attachments.\n${preserved} unsupported attachments preserved separately. ${dataset.skipped} supporting or non-content objects skipped.\n\n## Import into Anchor\n\nOpen Anchor → Settings → Import / Export → Import notes. Select this ZIP and choose Anchor backup if asked. Review the import and keep “Skip existing” enabled to avoid duplicates. Requires an Anchor version with the Anchor backup importer.\n\nThe markdown/ folder contains readable copies. Import the ZIP once; do not also import these copies.\n\nUnnamed notes retain an empty title; the review list uses a content label only. Their Markdown copies are named Untitled.md in separate folders so standalone Anchor Markdown import also keeps the title empty. Tasks become individual notes with a checked or unchecked first line. Attachment placeholders identify the original location; Anchor displays attached media separately. Missing dates use the conversion time. Tags are ${options.includeTags ? "included" : "omitted"}; tags written inside body text remain part of the text.\n\n## Conversion notes\n\n${warnings.length ? warnings.map((message) => `- ${message.replace(/\n/g, " ")}`).join("\n") : "No conversion warnings."}\n\nObject relationships, Set filters, sharing, reminders, and version history are not recreated.\n`,
   );
   return { bytes: zipSync(files, { level: 6 }), manifest, warnings };
 }

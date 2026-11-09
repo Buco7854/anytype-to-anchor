@@ -28,7 +28,7 @@ The production build succeeds with relative asset and worker URLs. The workflow 
 
 ## Unnamed-title regression
 
-Unnamed objects retain an empty title in the Anchor manifest. The first body line supplies a review-list label and filename only; the preview explicitly shows “No title”. Markdown copies declare an empty title and do not insert a heading. Tests cover unchanged body content/order, source title blocks, task completion, empty objects, formatted AnyBlock 2 content, bounded review labels, Markdown round trips and explicit empty Markdown titles with body headings. The browser test verifies both the review label and the empty title in the downloaded manifest. Fixtures use synthetic IDs.
+Unnamed objects retain an empty title in the Anchor manifest. The first body line supplies a review-list label only; the preview explicitly shows “No title”. Markdown copies declare an empty title and do not insert a heading. Unnamed files use the exact filename `Untitled.md` in separate folders, matching Anchor’s standalone Markdown empty-title convention. Tests cover unchanged body content/order, source title blocks, task completion, empty objects, formatted AnyBlock 2 content, bounded review labels, Markdown round trips and explicit empty Markdown titles with body headings. The browser test verifies both the review label and the empty title in the downloaded manifest. Fixtures use synthetic IDs.
 
 ## Dark theme and code blocks
 
