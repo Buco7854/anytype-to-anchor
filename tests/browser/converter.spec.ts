@@ -445,13 +445,11 @@ test("warnings identify unnamed notes and their source filenames can be searched
     ]),
     "empty-view.pb.json": object("empty-view", [{ id: "view", dataview: {} }]),
   });
-  await page
-    .locator("#file-input")
-    .setInputFiles({
-      name: "notes.zip",
-      mimeType: "application/zip",
-      buffer: Buffer.from(archive),
-    });
+  await page.locator("#file-input").setInputFiles({
+    name: "notes.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(archive),
+  });
   await expect(page.locator("#warnings")).toBeVisible();
   await page.locator("#warnings-summary").click();
   await expect(page.locator("#warnings-list")).toContainText(
@@ -467,3 +465,103 @@ test("warnings identify unnamed notes and their source filenames can be searched
   await expect(page.locator(".preview-meta")).toContainText("No title");
   await expect(page.locator("#note-preview h3")).toHaveCount(0);
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`standalone and embedded bookmarks retain clickable URLs in ${colorScheme} previews and Anchor downloads`, async ({
+    page,
+  }) => {
+    const { default: AxeBuilder } = await import("@axe-core/playwright");
+    await page.emulateMedia({ colorScheme });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const externalRequests: string[] = [];
+    page.on("request", (request) => {
+      if (
+        !request.url().startsWith("http://127.0.0.1:4173") &&
+        !request.url().startsWith("blob:")
+      )
+        externalRequests.push(request.url());
+    });
+    await page.goto("/");
+    const url = "https://example.com/guide?lang=fr#intro";
+    const description = "A reference worth keeping.";
+    const archive = zipSync({
+      "bookmark.pb.json": strToU8(
+        JSON.stringify({
+          sbType: "Page",
+          snapshot: {
+            data: {
+              details: {
+                id: "bookmark",
+                name: "Reference guide",
+                resolvedLayout: 11,
+                source: url,
+                description,
+                tags: ["Research"],
+              },
+            },
+          },
+        }),
+      ),
+      "links.pb.json": strToU8(
+        JSON.stringify({
+          sbType: "Page",
+          snapshot: {
+            data: {
+              details: { id: "links", name: "My links" },
+              blocks: [{ id: "b", bookmark: { targetObjectId: "bookmark" } }],
+            },
+          },
+        }),
+      ),
+    });
+    await page
+      .locator("#file-input")
+      .setInputFiles({
+        name: "bookmarks.zip",
+        mimeType: "application/zip",
+        buffer: Buffer.from(archive),
+      });
+    await expect(page.locator("#selection-summary")).toHaveText(
+      "2 notes and 0 tasks selected",
+    );
+    const standalone = page
+      .locator("#note-preview")
+      .getByRole("link", { name: url, exact: true });
+    await expect(standalone).toHaveAttribute("href", url);
+    await expect(standalone).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(page.locator("#note-preview")).toContainText(description);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.getByRole("button", { name: "Preview My links Note" }).click();
+    await expect(
+      page
+        .locator("#note-preview")
+        .getByRole("link", { name: "Reference guide", exact: true }),
+    ).toHaveAttribute("href", url);
+    await expect(page.locator("#note-preview")).toContainText(description);
+    await expect(page.locator("#warnings")).toBeHidden();
+    const promise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download Anchor ZIP" }).click();
+    const download = await promise;
+    const zip = unzipSync(
+      new Uint8Array(await readFile((await download.path())!)),
+    );
+    const manifest = JSON.parse(strFromU8(zip["manifest.json"]));
+    expect(manifest.notes).toHaveLength(2);
+    expect(
+      manifest.notes.every((note: any) =>
+        JSON.parse(note.content).ops.some(
+          (op: any) => op.attributes?.link === url,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      manifest.notes.find((note: any) => note.title === "Reference guide")
+        .tagIds,
+    ).toHaveLength(1);
+    expect(externalRequests).toEqual([]);
+    await page.screenshot({
+      path: `test-results/bookmark-${colorScheme}.png`,
+      fullPage: true,
+    });
+  });
+}

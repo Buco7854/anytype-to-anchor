@@ -738,3 +738,292 @@ describe("warnings that identify unnamed notes", () => {
     expect(dataset.warnings[0]).toMatch(/^Research notes: Tables/);
   });
 });
+
+describe("bookmark migration", () => {
+  const url = "https://example.com/guide?language=fr#setup";
+  const description = "A useful reference for later.";
+
+  it("preserves property-only legacy bookmarks with their URL, description, tags, and dates", async () => {
+    const dataset = parseExport({
+      "bookmark.pb.json": json({
+        sbType: "Page",
+        snapshot: {
+          data: {
+            details: {
+              id: "bookmark",
+              name: "Reference guide",
+              resolvedLayout: 11,
+              source: url,
+              description,
+              tags: ["Research"],
+              createdDate: 1700000000,
+            },
+          },
+        },
+      }),
+    });
+    const note = dataset.notes[0];
+    expect(note.title).toBe("Reference guide");
+    expect(note.kind).toBe("note");
+    expect(plain(note.delta)).toBe(url + "\n" + description + "\n");
+    expect(note.delta.ops.some((op) => op.attributes?.link === url)).toBe(true);
+    expect(note.tags).toEqual(["Research"]);
+    expect(note.createdAt).toBe("2023-11-14T22:13:20.000Z");
+    const result = await createArchive(dataset, options(dataset));
+    expect(
+      JSON.parse(result.manifest.notes[0].content).ops.some(
+        (op: any) => op.attributes?.link === url,
+      ),
+    ).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("reads standalone AnyBlock 2 bookmarks without a body, including localized property names", () => {
+    const dataset = parseExport({
+      "bookmark.anyblock.json": json({
+        formatVersion: "2.0",
+        id: "bookmark",
+        type: "Bookmark",
+        properties: {
+          Name: "Reference guide",
+          "Resolved layout": "bookmark",
+          Adresse: url,
+          Résumé: description,
+        },
+        property_internal_keys: { Adresse: "source", Résumé: "description" },
+      }),
+    });
+    expect(plain(dataset.notes[0].delta)).toBe(url + "\n" + description + "\n");
+    expect(
+      dataset.notes[0].delta.ops.some((op) => op.attributes?.link === url),
+    ).toBe(true);
+  });
+
+  it("resolves legacy embedded bookmark targets when the URL is only on the linked object", () => {
+    const dataset = parseExport({
+      "note.pb.json": legacy("note", { name: "My links" }, [
+        { id: "b", bookmark: { targetObjectId: "bookmark" } },
+      ]),
+      "bookmark.pb.json": legacy(
+        "bookmark",
+        {
+          name: "Reference guide",
+          resolvedLayout: 11,
+          source: url,
+          description,
+        },
+        [],
+      ),
+    });
+    const parent = dataset.notes.find((note) => note.key === "note")!;
+    expect(plain(parent.delta)).toBe("Reference guide\n" + description + "\n");
+    expect(parent.delta.ops.some((op) => op.attributes?.link === url)).toBe(
+      true,
+    );
+    expect(dataset.warnings).toEqual([]);
+  });
+
+  it("resolves AnyBlock 2 embedded bookmark object references", () => {
+    const dataset = parseExport({
+      "note.anyblock.json": json({
+        formatVersion: "2.0",
+        id: "note",
+        properties: { Name: "My links" },
+        blocks: [{ id: "b", type: "bookmark", object_id: "bookmark" }],
+      }),
+      "bookmark.anyblock.json": json({
+        formatVersion: "2.0",
+        id: "bookmark",
+        properties: {
+          Name: "Reference guide",
+          "Resolved layout": "bookmark",
+          Adresse: url,
+          Description: description,
+        },
+        property_internal_keys: { Adresse: "source" },
+        blocks: [],
+      }),
+    });
+    const parent = dataset.notes.find((note) => note.key === "note")!;
+    expect(plain(parent.delta)).toBe("Reference guide\n" + description + "\n");
+    expect(parent.delta.ops.some((op) => op.attributes?.link === url)).toBe(
+      true,
+    );
+  });
+
+  it("converts an object link to an exported bookmark into its external URL", () => {
+    const dataset = parseExport({
+      "note.pb.json": legacy("note", { name: "My links" }, [
+        { id: "link", link: { targetBlockId: "bookmark" } },
+      ]),
+      "bookmark.pb.json": legacy(
+        "bookmark",
+        { name: "Reference guide", resolvedLayout: 11, source: url },
+        [],
+      ),
+    });
+    expect(
+      dataset.notes[0].delta.ops.some((op) => op.attributes?.link === url),
+    ).toBe(true);
+    expect(
+      dataset.warnings.some((warning) =>
+        warning.includes("still point to Anytype"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps URL-only bookmark blocks when a standalone bookmark has no source property", () => {
+    const dataset = parseExport({
+      "bookmark.pb.json": legacy(
+        "bookmark",
+        { name: "Reference guide", resolvedLayout: 11 },
+        [{ id: "b", bookmark: { url, title: "Reference guide", description } }],
+      ),
+    });
+    expect(
+      dataset.notes[0].delta.ops.some((op) => op.attributes?.link === url),
+    ).toBe(true);
+    expect(dataset.warnings).toEqual([]);
+  });
+
+  it("does not duplicate a URL or description already present in the bookmark body", () => {
+    const dataset = parseExport({
+      "bookmark.pb.json": legacy(
+        "bookmark",
+        {
+          name: "Reference guide",
+          resolvedLayout: 11,
+          source: url,
+          description,
+        },
+        [{ id: "b", bookmark: { url, description } }],
+      ),
+    });
+    const body = plain(dataset.notes[0].delta);
+    expect(body.split(url).length - 1).toBe(1);
+    expect(body.split(description).length - 1).toBe(1);
+  });
+
+  it("preserves Source and Description in Markdown bookmark properties", () => {
+    const dataset = parseExport({
+      "bookmark.md": strToU8(
+        `---\ntitle: Reference guide\nObject Type: Bookmark\nSource: ${url}\nDescription: ${description}\ntags: [Research]\n---\n# Reference guide`,
+      ),
+    });
+    expect(plain(dataset.notes[0].delta)).toBe(url + "\n" + description + "\n");
+    expect(dataset.notes[0].tags).toEqual(["Research"]);
+  });
+
+  it("keeps an unnamed bookmark untitled instead of promoting its URL to a title", async () => {
+    const dataset = parseExport({
+      "bookmark.pb.json": legacy(
+        "bookmark",
+        { resolvedLayout: 11, source: url, description },
+        [],
+      ),
+    });
+    expect(dataset.notes[0].title).toBe("");
+    const result = await createArchive(dataset, options(dataset));
+    expect(result.manifest.notes[0].title).toBe("");
+    expect(result.manifest.notes[0].content).toContain(url);
+  });
+
+  it("retains bookmark text and identifies the note when its URL is unavailable", () => {
+    const dataset = parseExport({
+      "bookmark.pb.json": legacy(
+        "bookmark",
+        { name: "Reference guide", resolvedLayout: 11, description },
+        [],
+      ),
+    });
+    expect(plain(dataset.notes[0].delta)).toBe(description + "\n");
+    expect(dataset.warnings[0]).toMatch(
+      /^Reference guide: Bookmark URL is missing/,
+    );
+  });
+
+  it("keeps unsafe bookmark destinations as text without creating an executable link", () => {
+    const dataset = parseExport({
+      "bookmark.pb.json": legacy(
+        "bookmark",
+        {
+          name: "Untrusted bookmark",
+          resolvedLayout: 11,
+          source: "javascript:alert(1)",
+          description,
+        },
+        [],
+      ),
+    });
+    expect(plain(dataset.notes[0].delta)).toContain("javascript:alert(1)");
+    expect(dataset.notes[0].delta.ops.some((op) => op.attributes?.link)).toBe(
+      false,
+    );
+    expect(dataset.warnings[0]).toContain("invalid or unsupported URL");
+  });
+});
+
+it("recognizes a localized AnyBlock bookmark by its internal type key", () => {
+  const dataset = parseExport({
+    "favori.anyblock.json": json({
+      formatVersion: "2.0",
+      id: "favori",
+      type: "Marque-page",
+      type_internal_key: "bookmark",
+      properties: { Name: "Guide", Source: "https://example.com/guide" },
+    }),
+  });
+  expect(plain(dataset.notes[0].delta)).toBe("https://example.com/guide\n");
+});
+
+it("preserves Markdown bookmark Source metadata even with a localized type name", () => {
+  const dataset = parseExport({
+    "favori.md": strToU8(
+      "---\ntitle: Guide\nObject Type: Marque-page\nSource: https://example.com/guide\nDescription: Une référence utile.\n---\n# Guide",
+    ),
+  });
+  expect(plain(dataset.notes[0].delta)).toBe(
+    "https://example.com/guide\nUne référence utile.\n",
+  );
+});
+
+it("resolves a link to a localized AnyBlock bookmark through its internal type key", () => {
+  const dataset = parseExport({
+    "note.anyblock.json": json({
+      formatVersion: "2.0",
+      id: "note",
+      properties: { Name: "My links" },
+      blocks: [{ id: "b", type: "link", object_id: "favori" }],
+    }),
+    "favori.anyblock.json": json({
+      formatVersion: "2.0",
+      id: "favori",
+      type: "Marque-page",
+      type_internal_key: "bookmark",
+      properties: { Name: "Guide", Source: "https://example.com/guide" },
+    }),
+  });
+  expect(
+    dataset.notes[0].delta.ops.some(
+      (op) => op.attributes?.link === "https://example.com/guide",
+    ),
+  ).toBe(true);
+  expect(dataset.warnings).toEqual([]);
+});
+
+it("retains an embedded bookmark's label and destination even when its URL cannot be linked", () => {
+  const dataset = parseExport({
+    "links.pb.json": legacy("links", { name: "Links" }, [
+      {
+        id: "b",
+        bookmark: { title: "A saved link", url: "javascript:alert(1)" },
+      },
+    ]),
+  });
+  expect(plain(dataset.notes[0].delta)).toBe(
+    "A saved link (javascript:alert(1))\n",
+  );
+  expect(dataset.notes[0].delta.ops.some((op) => op.attributes?.link)).toBe(
+    false,
+  );
+});

@@ -690,6 +690,11 @@ input::placeholder {
   font-size: 13px;
   line-height: 1.65;
 }
+.preview-content a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .preview-line {
   margin: 6px 0;
   white-space: pre-wrap;

@@ -1,5 +1,6 @@
 import "./style.css";
 import { initTheme } from "./theme";
+import { safeExternalLink } from "./lib/links";
 import { noteLabel } from "./lib/titles";
 import { MAX_INPUT, type InputFile } from "./lib/archive";
 import { ALLOWED_MIME, selectedNotes } from "./lib/convert";
@@ -377,7 +378,13 @@ function renderPreview() {
     op.insert.split("\n").forEach((part, index) => {
       if (index) addLine(attrs);
       if (!part) return;
-      const span = el("span", "", part);
+      const href = safeExternalLink(attrs.link);
+      const span = href ? el("a", "", part) : el("span", "", part);
+      if (href && span instanceof HTMLAnchorElement) {
+        span.href = href;
+        span.target = "_blank";
+        span.rel = "noopener noreferrer";
+      }
       if (attrs.bold) span.style.fontWeight = "600";
       if (attrs.italic) span.style.fontStyle = "italic";
       if (attrs.underline || attrs.strike)

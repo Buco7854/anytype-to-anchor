@@ -1,6 +1,7 @@
 import { parseDocument } from "yaml";
 import { strFromU8 } from "fflate";
 import { resolveFile } from "./archive";
+import { safeExternalLink } from "./links";
 import { readableTitle, contentLabel, noteLabel } from "./titles";
 import { inline, line, markdownToDelta, push } from "./richtext";
 import type { Attachment, Attributes, Dataset, Delta, Note, Op } from "./types";
@@ -59,6 +60,65 @@ export function mimeFor(path: string): string {
   );
 }
 
+function bookmarkContent(
+  url: string,
+  title: string,
+  description: string,
+  warn: (message: string) => void,
+): Op[] {
+  const ops: Op[] = [];
+  if (url) {
+    const link = safeExternalLink(url);
+    line(ops, [
+      {
+        insert: link ? title || url : title ? `${title} (${url})` : url,
+        ...(link ? { attributes: { link } } : {}),
+      },
+    ]);
+    if (!link)
+      warn(
+        "Bookmark destination uses an invalid or unsupported URL; it is preserved as text.",
+      );
+  } else {
+    if (title) line(ops, [{ insert: title }]);
+    warn(
+      "Bookmark URL is missing from the export. Include linked objects when exporting from Anytype.",
+    );
+  }
+  if (description) line(ops, [{ insert: description }]);
+  return ops;
+}
+
+function addBookmarkProperties(
+  ops: Op[],
+  url: string,
+  description: string,
+  warn: (message: string) => void,
+) {
+  const body = ops.map((op) => op.insert).join("");
+  const hasUrl =
+    url &&
+    (ops.some((op) => op.attributes?.link === url) ||
+      body.split(/\s+/).includes(url));
+  const hasDescription = description && body.includes(description);
+  const prefix: Op[] = [];
+  if (url && !hasUrl) prefix.push(...bookmarkContent(url, "", "", warn));
+  else if (!url && !ops.some((op) => safeExternalLink(op.attributes?.link))) {
+    warn(
+      "Bookmark URL is missing from the export. Include linked objects when exporting from Anytype.",
+    );
+  }
+  if (description && !hasDescription) line(prefix, [{ insert: description }]);
+  if (
+    prefix.length &&
+    ops.length === 1 &&
+    ops[0].insert === "\n" &&
+    !ops[0].attributes
+  )
+    ops.length = 0;
+  ops.unshift(...prefix);
+}
+
 export function parseExport(files: Record<string, Uint8Array>): Dataset {
   const notes: Note[] = [];
   const warnings: string[] = [];
@@ -81,7 +141,12 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
         snapshot.data ?? (raw.snapshot ? snapshot : undefined),
       );
       const v2 =
-        typeof raw.formatVersion === "string" && Array.isArray(raw.blocks);
+        typeof raw.formatVersion === "string" &&
+        (Array.isArray(raw.blocks) ||
+          (typeof raw.id === "string" &&
+            raw.properties &&
+            typeof raw.properties === "object" &&
+            !Array.isArray(raw.properties)));
       if (v2 && !raw.formatVersion.startsWith("2.")) {
         warn(
           `${basename(path)}: AnyBlock version ${raw.formatVersion} is unsupported.`,
@@ -101,6 +166,15 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
     const d = item.v2 ? record(item.raw.properties) : record(item.data.details);
     byId.set(valueString(item.raw.id ?? d.id, titleFromPath(item.path)), {
       ...d,
+      type_internal_key: item.raw.type_internal_key,
+      ...Object.fromEntries(
+        Object.entries(record(item.raw.property_internal_keys))
+          .filter(
+            ([label, key]) =>
+              typeof key === "string" && Object.hasOwn(d, label),
+          )
+          .map(([label, key]) => [key, d[label]]),
+      ),
       path: item.path,
     });
     for (const relation of list(item.data.relationLinks)) {
@@ -229,7 +303,12 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
       skipped++;
       continue;
     }
-    if (!Array.isArray(v2 ? raw.blocks : data.blocks)) {
+    const isBookmark =
+      Number(layout) === 11 ||
+      layout === "bookmark" ||
+      raw.type_internal_key === "bookmark" ||
+      /^bookmark$/i.test(typeName);
+    if (!Array.isArray(v2 ? raw.blocks : data.blocks) && !isBookmark) {
       skipped++;
       continue;
     }
@@ -385,22 +464,50 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
           { insert: `[Attachment: ${valueString(file.name, target)}]` },
         ]);
       } else if (block.bookmark || style === "bookmark") {
-        const bookmark = v2 ? block : block.bookmark;
-        const url = valueString(bookmark.url);
-        line(ops, [
-          {
-            insert: valueString(bookmark.title, url),
-            ...(url ? { attributes: { link: url } } : {}),
-          },
-        ]);
+        const bookmark = record(v2 ? block : block.bookmark);
+        const targetId = valueString(
+          bookmark.object_id ?? bookmark.targetObjectId,
+        );
+        const target = byId.get(targetId);
+        const url =
+          valueString(bookmark.url).trim() ||
+          valueString(target?.source ?? target?.Source).trim();
+        const label =
+          readableTitle(bookmark.title) ||
+          readableTitle(target?.name ?? target?.Name) ||
+          "";
+        const description =
+          valueString(bookmark.description).trim() ||
+          valueString(target?.description ?? target?.Description).trim();
+        ops.push(...bookmarkContent(url, label, description, contextWarn));
       } else if (block.link || style === "link" || style === "object") {
         const target = valueString(
           v2 ? block.object_id : block.link.targetBlockId,
         );
+        const linked = byId.get(target);
+        const linkedLayout =
+          linked?.resolvedLayout ??
+          linked?.["Resolved layout"] ??
+          linked?.layout;
+        if (
+          Number(linkedLayout) === 11 ||
+          linkedLayout === "bookmark" ||
+          linked?.type_internal_key === "bookmark"
+        ) {
+          ops.push(
+            ...bookmarkContent(
+              valueString(linked?.source ?? linked?.Source).trim(),
+              valueString(linked?.name ?? linked?.Name).trim(),
+              valueString(linked?.description ?? linked?.Description).trim(),
+              contextWarn,
+            ),
+          );
+          return;
+        }
         line(ops, [
           {
             insert: valueString(
-              byId.get(target)?.name ?? byId.get(target)?.Name,
+              linked?.name ?? linked?.Name,
               target || "Linked object",
             ),
             attributes: {
@@ -469,6 +576,13 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
           visit(block);
         }
     }
+    if (isBookmark)
+      addBookmarkProperties(
+        ops,
+        valueString(get("source", "Source") ?? get("url", "URL")).trim(),
+        valueString(get("description", "Description")).trim(),
+        contextWarn,
+      );
     if (kind === "task") {
       ops.unshift(...(title ? [{ insert: title }] : []), {
         insert: "\n",
@@ -589,6 +703,19 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
       const delta = markdownToDelta(markdown, (message) =>
         contextWarnings.push(message),
       );
+      if (
+        /^bookmark$/i.test(typeName) ||
+        safeExternalLink(lower.source) ||
+        lower.layout === "bookmark" ||
+        Number(lower.resolvedlayout ?? lower.layout) === 11
+      ) {
+        addBookmarkProperties(
+          delta.ops,
+          valueString(lower.source ?? lower.url).trim(),
+          valueString(lower.description).trim(),
+          (message) => contextWarnings.push(message),
+        );
+      }
       for (const message of contextWarnings)
         warn(
           `${title || contentLabel(delta.ops) || `Untitled (${basename(path)})`}: ${message}`,

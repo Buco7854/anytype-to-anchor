@@ -16,21 +16,24 @@ The theme follows your device setting initially. Use the sun/moon button in the 
 
 ## What moves
 
-| Anytype content                                         | Anchor result                                                                                          |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Notes and content objects                               | Individual notes, with title and body                                                                  |
-| Tasks                                                   | Individual notes with a checked/unchecked first line                                                   |
-| Headings, bold, italic, underline, strikethrough, links | Rich-text formats supported by Anchor                                                                  |
-| Lists, checklists, quotes, code blocks                  | Corresponding Anchor formats; nested lists keep indentation                                            |
-| Tag properties                                          | Optional Anchor tags; body hashtags remain text                                                        |
-| Creation and modification dates                         | Preserved when available; otherwise conversion time                                                    |
-| Archived objects                                        | Excluded by default; optionally imported as archived notes                                             |
-| JPEG, PNG, WebP, GIF and supported audio                | Note attachments; Anchor displays them separately from body text                                       |
-| Other attachments, such as PDFs and videos              | Original bytes retained in `unsupported-attachments/`, with a warning                                  |
-| Tables                                                  | Markdown tables become text; Any-Block tables/views produce warnings and preserve supported child text |
-| Set definitions, types, properties and options          | Supporting metadata; excluded from the note selection                                                  |
+| Anytype content                                         | Anchor result                                                                                            |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Notes and content objects                               | Individual notes, with title and body                                                                    |
+| Tasks                                                   | Individual notes with a checked/unchecked first line                                                     |
+| Headings, bold, italic, underline, strikethrough, links | Rich-text formats supported by Anchor                                                                    |
+| Lists, checklists, quotes, code blocks                  | Corresponding Anchor formats; nested lists keep indentation                                              |
+| Bookmarks and embedded bookmark references              | Regular notes or clickable links with the original URL and description; existing tags and dates are kept |
+| Tag properties                                          | Optional Anchor tags; body hashtags remain text                                                          |
+| Creation and modification dates                         | Preserved when available; otherwise conversion time                                                      |
+| Archived objects                                        | Excluded by default; optionally imported as archived notes                                               |
+| JPEG, PNG, WebP, GIF and supported audio                | Note attachments; Anchor displays them separately from body text                                         |
+| Other attachments, such as PDFs and videos              | Original bytes retained in `unsupported-attachments/`, with a warning                                    |
+| Tables                                                  | Markdown tables become text; Any-Block tables/views produce warnings and preserve supported child text   |
+| Set definitions, types, properties and options          | Supporting metadata; excluded from the note selection                                                    |
 
 Unnamed objects keep an empty title in Anchor. The review list uses the first text line only as a label; it is never assigned as the note title. Unnamed Markdown copies use `Untitled.md` in separate folders, matching Anchor’s standalone Markdown importer’s empty-title convention. The preview marks these objects “No title”, and Markdown copies declare an empty title without adding a heading. Original body headings and text are kept. Existing names and explicit title blocks are preserved.
+
+Bookmark URLs stored in properties or exported target objects are resolved locally, including standalone bookmarks without body blocks. Missing URLs produce a warning identifying the affected note. Anytype bookmark cards, thumbnails, and favicons are not recreated, and the converter never fetches bookmark websites.
 
 The converter reads legacy `snapshot.data` JSON exports and the AnyBlock 2 JSON document format. It prefers structured JSON when both structured objects and Markdown appear in one export. Tag names are resolved from exported relation options or inline named properties. It does not recreate Set filters, arbitrary custom properties, object relationships, reminders, sharing, history, or original inline attachment placement. Some AnyBlock 2 inline HTML marks remain visible text. Object links continue to point to Anytype; Markdown local-document links become text. Review the conversion notes before importing.
 
