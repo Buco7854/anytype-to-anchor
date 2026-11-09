@@ -386,3 +386,130 @@ describe("compatibility boundaries", () => {
     expect(result.manifest.tags).toEqual([]);
   });
 });
+
+describe("readable titles for unnamed Anytype objects", () => {
+  const objectId = "bafyrei" + "a".repeat(52);
+
+  it("uses the first text in document order instead of a CID filename and keeps the body", async () => {
+    const dataset = parseExport({
+      [`${objectId}.pb.json`]: legacy(
+        objectId,
+        { resolvedLayout: 9, tags: ["Divertissement"] },
+        [
+          { id: "root", smartblock: {}, childrenIds: ["heading", "body"] },
+          {
+            id: "body",
+            text: { text: "Voir les saves sur reddit", style: "Paragraph" },
+          },
+          { id: "heading", text: { text: "À lire", style: "Header2" } },
+        ],
+      ),
+    });
+    expect(dataset.notes[0].title).toBe("À lire");
+    expect(dataset.notes[0].key).toBe(objectId);
+    expect(plain(dataset.notes[0].delta)).toBe(
+      "À lire\nVoir les saves sur reddit\n",
+    );
+    const result = await createArchive(dataset, options(dataset));
+    expect(result.manifest.notes[0].title).toBe("À lire");
+    expect(result.manifest.notes[0].content).toContain(
+      "Voir les saves sur reddit",
+    );
+  });
+
+  for (const style of ["Title", 7]) {
+    it(`recovers a ${style} title block when the name is blank`, () => {
+      const dataset = parseExport({
+        [`${objectId}.pb.json`]: legacy(
+          objectId,
+          { name: " \n ", resolvedLayout: 9 },
+          [
+            { id: "title", text: { text: "Reading list", style } },
+            { id: "body", text: { text: "Content", style: "Paragraph" } },
+          ],
+        ),
+      });
+      expect(dataset.notes[0].title).toBe("Reading list");
+      expect(plain(dataset.notes[0].delta)).toBe("Content\n");
+    });
+  }
+
+  it("preserves an explicit name instead of replacing it with a heading", () => {
+    const dataset = parseExport({
+      [`${objectId}.pb.json`]: legacy(objectId, { name: "Original name" }, [
+        {
+          id: "heading",
+          text: { text: "A section heading", style: "Header2" },
+        },
+      ]),
+    });
+    expect(dataset.notes[0].title).toBe("Original name");
+  });
+
+  it("uses a readable title in the generated completed-task checkbox", () => {
+    const dataset = parseExport({
+      [`${objectId}.pb.json`]: legacy(
+        objectId,
+        { name: objectId, resolvedLayout: 2, done: true },
+        [{ id: "body", text: { text: "Book a table", style: "Paragraph" } }],
+      ),
+    });
+    expect(dataset.notes[0].title).toBe("Book a table");
+    expect(dataset.notes[0].delta.ops[0].insert).toBe("Book a table");
+    expect(dataset.notes[0].delta.ops[1].attributes?.list).toBe("checked");
+    expect(plain(dataset.notes[0].delta)).toBe("Book a table\nBook a table\n");
+  });
+
+  it("gives an empty object a neutral title instead of its ID", () => {
+    const dataset = parseExport({
+      [`${objectId}.pb.json`]: legacy(objectId, {}, []),
+    });
+    expect(dataset.notes[0].title).toBe("Untitled");
+    expect(
+      dataset.warnings.some((warning) => warning.includes("Untitled")),
+    ).toBe(true);
+  });
+
+  it("derives AnyBlock 2 titles from formatted text without copying markup", () => {
+    const dataset = parseExport({
+      [`${objectId}.anyblock.json`]: json({
+        formatVersion: "2.0",
+        id: objectId,
+        properties: { Name: objectId },
+        blocks: [
+          {
+            id: "body",
+            type: "paragraph",
+            text: "A **reading** [list](https://example.com)",
+          },
+        ],
+      }),
+    });
+    expect(dataset.notes[0].title).toBe("A reading list");
+    expect(plain(dataset.notes[0].delta)).toBe("A reading list\n");
+  });
+
+  it("bounds inferred titles without shortening the original content", () => {
+    const body = "A long note " + "é".repeat(150);
+    const dataset = parseExport({
+      [`${objectId}.pb.json`]: legacy(objectId, {}, [
+        { id: "body", text: { text: body } },
+      ]),
+    });
+    expect(dataset.notes[0].title.length).toBeLessThanOrEqual(121);
+    expect(dataset.notes[0].title.endsWith("…")).toBe(true);
+    expect(plain(dataset.notes[0].delta)).toBe(body + "\n");
+  });
+
+  it("uses content for unnamed Markdown with an ID filename", () => {
+    const dataset = parseExport({
+      [`${objectId}.md`]: strToU8(
+        "---\nname: ''\n---\n\nÀ **lire**\n\nVoir les saves sur reddit",
+      ),
+    });
+    expect(dataset.notes[0].title).toBe("À lire");
+    expect(plain(dataset.notes[0].delta)).toBe(
+      "À lire\nVoir les saves sur reddit\n",
+    );
+  });
+});

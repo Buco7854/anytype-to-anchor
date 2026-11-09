@@ -74,13 +74,11 @@ test("real ZIP input, warnings, error recovery and no external network or stored
     ),
     "Export/files/paper.pdf": strToU8("%PDF-test"),
   });
-  await page
-    .locator("#file-input")
-    .setInputFiles({
-      name: "notes.zip",
-      mimeType: "application/zip",
-      buffer: Buffer.from(zip),
-    });
+  await page.locator("#file-input").setInputFiles({
+    name: "notes.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(zip),
+  });
   await expect(page.locator("#source-name")).toHaveText("notes.zip");
   await expect(page.locator("#note-preview")).toContainText("Useful");
   await expect(page.locator("#warnings")).toBeVisible();
@@ -88,13 +86,11 @@ test("real ZIP input, warnings, error recovery and no external network or stored
   await expect(page.locator("#warnings-list")).toContainText(
     "unsupported-attachments/",
   );
-  await page
-    .locator("#file-input")
-    .setInputFiles({
-      name: "broken.zip",
-      mimeType: "application/zip",
-      buffer: Buffer.from("broken"),
-    });
+  await page.locator("#file-input").setInputFiles({
+    name: "broken.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from("broken"),
+  });
   await expect(page.getByRole("alert")).toContainText(
     "ZIP could not be opened",
   );
@@ -184,4 +180,47 @@ test("keyboard path, reduced motion, enlarged text, and accessibility of empty a
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+});
+
+test("unnamed notes show readable titles in the preview and downloaded Anchor ZIP", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const objectId = "bafyrei" + "a".repeat(52);
+  const note = {
+    sbType: "Page",
+    snapshot: {
+      data: {
+        details: { id: objectId, resolvedLayout: 9, tags: ["Reading"] },
+        blocks: [
+          { id: "root", smartblock: {}, childrenIds: ["heading", "body"] },
+          {
+            id: "body",
+            text: { text: "A list of books to revisit.", style: "Paragraph" },
+          },
+          { id: "heading", text: { text: "À lire", style: "Header2" } },
+        ],
+      },
+    },
+  };
+  await page.locator("#file-input").setInputFiles({
+    name: objectId + ".pb.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(note)),
+  });
+  await expect(page.locator(".note-row-title")).toHaveText("À lire");
+  await expect(page.locator("#note-preview h3")).toHaveText("À lire");
+  await expect(page.locator(".preview-content")).toContainText(
+    "A list of books to revisit.",
+  );
+  const promise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download Anchor ZIP" }).click();
+  const download = await promise;
+  const zip = unzipSync(
+    new Uint8Array(await readFile((await download.path())!)),
+  );
+  const manifest = JSON.parse(strFromU8(zip["manifest.json"]));
+  expect(manifest.notes[0].title).toBe("À lire");
+  expect(manifest.notes[0].content).toContain("A list of books to revisit.");
+  expect(manifest.notes[0].tagIds).toHaveLength(1);
 });

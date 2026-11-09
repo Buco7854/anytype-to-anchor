@@ -21,6 +21,32 @@ const isTrue = (value: unknown) => value === true || value === "true";
 const basename = (path: string) => path.split("/").at(-1) ?? path;
 const titleFromPath = (path: string) =>
   basename(path).replace(/\.(?:pb\.|anyblock\.)?json$|\.md$|\.markdown$/i, "");
+function readableTitle(value: unknown): string | undefined {
+  const title = valueString(value).trim();
+  // Export filenames (and sometimes generated names) contain storage IDs.
+  if (
+    !title ||
+    /^bafy[a-z2-7]{30,}$/i.test(title) ||
+    /^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(title) ||
+    /^[a-f0-9]{32,}$/i.test(title) ||
+    /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(title)
+  )
+    return;
+  return title;
+}
+function contentTitle(ops: Op[]): string | undefined {
+  const first = ops
+    .map((op) => op.insert)
+    .join("")
+    .split(/\r?\n/)
+    .map((text) => text.trim().replace(/\s+/g, " "))
+    .find((text) => readableTitle(text) && !/^\[Attachment:|^—$/.test(text));
+  if (!first) return;
+  const characters = Array.from(first);
+  return characters.length > 120
+    ? characters.slice(0, 120).join("").trimEnd() + "…"
+    : first;
+}
 export function date(value: unknown): string | undefined {
   if (value === undefined || value === null || value === "") return;
   const numeric =
@@ -62,6 +88,8 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
   const notes: Note[] = [];
   const warnings: string[] = [];
   let skipped = 0;
+  let contentTitles = 0;
+  let untitledObjects = 0;
   const parsed: { path: string; raw: Raw; data: Raw; v2: boolean }[] = [];
   const formats = new Set<string>();
   const warn = (message: string) => {
@@ -233,8 +261,17 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
       continue;
     }
     formats.add(v2 ? "AnyBlock 2 JSON" : "Any-Block JSON");
-    const title =
-      valueString(get("name", "Name"), titleFromPath(path)) || "Untitled";
+    const blocks: Raw[] = list(v2 ? raw.blocks : data.blocks).map(record);
+    const titleBlock = !v2
+      ? blocks.find(
+          (block) =>
+            ["Title", 7].includes(block.text?.style) &&
+            readableTitle(block.text?.text),
+        )
+      : undefined;
+    let title =
+      readableTitle(get("name", "Name")) ??
+      readableTitle(titleBlock?.text?.text);
     const kind =
       Number(layout) === 2 ||
       layout === "todo" ||
@@ -243,12 +280,8 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
         : "note";
     const ops: Op[] = [];
     const attachments: Attachment[] = [];
-    const blocks: Raw[] = list(v2 ? raw.blocks : data.blocks).map(record);
-    const contextWarn = (message: string) => warn(`${title}: ${message}`);
-    if (kind === "task")
-      line(ops, [{ insert: title }], {
-        list: isTrue(get("done", "Done")) ? "checked" : "unchecked",
-      });
+    const contextWarnings: string[] = [];
+    const contextWarn = (message: string) => contextWarnings.push(message);
     const emit = (block: Raw, depth = 0) => {
       const text = v2 ? block : record(block.text);
       const style = v2
@@ -460,6 +493,25 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
           visit(block);
         }
     }
+    if (!title) {
+      const fromContent =
+        contentTitle(ops) ??
+        contentTitle(inline(valueString(get("snippet", "Snippet"))));
+      title = fromContent ?? readableTitle(titleFromPath(path)) ?? "Untitled";
+      if (fromContent) contentTitles++;
+      else if (title === "Untitled") untitledObjects++;
+    }
+    if (kind === "task") {
+      ops.unshift(
+        { insert: title },
+        {
+          insert: "\n",
+          attributes: {
+            list: isTrue(get("done", "Done")) ? "checked" : "unchecked",
+          },
+        },
+      );
+    }
     const tags: string[] = [];
     for (const [key, value] of Object.entries(p)) {
       if (tagKeys.has(key) || /^tags?$/i.test(key)) {
@@ -477,6 +529,7 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
         }
       }
     }
+    for (const message of contextWarnings) warn(`${title}: ${message}`);
     addNote({
       key: valueString(raw.id ?? p.id, path),
       title,
@@ -526,10 +579,11 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
         ]),
       );
       const heading = /^#\s+(.+)(?:\n|$)/.exec(markdown);
-      const title = valueString(
-        lower.title ?? lower.name,
-        heading?.[1] ?? titleFromPath(path),
-      );
+      let title =
+        readableTitle(lower.title) ??
+        readableTitle(lower.name) ??
+        (heading ? contentTitle(inline(heading[1])) : undefined) ??
+        readableTitle(titleFromPath(path));
       if (heading && heading[1] === title)
         markdown = markdown.slice(heading[0].length).trimStart();
       const typeName =
@@ -540,6 +594,7 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
       }
       const kind = /\b(task|todo|to-do)\b/i.test(typeName) ? "task" : "note";
       const attachments: Attachment[] = [];
+      const contextWarnings: string[] = [];
       markdown = markdown.replace(
         /!?\[([^\]]*)\]\((<[^>]+>|[^\s)]+)(?:\s+"[^"]*")?\)/g,
         (match, label, href) => {
@@ -550,8 +605,8 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
           )
             return match;
           if (/\.(md|markdown)(?:#.*)?$/i.test(target)) {
-            warn(
-              `${title}: Local document links are preserved as text because Anchor cannot resolve them.`,
+            contextWarnings.push(
+              "Local document links are preserved as text because Anchor cannot resolve them.",
             );
             return `${label} (${target})`;
           }
@@ -561,8 +616,15 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
         },
       );
       const delta = markdownToDelta(markdown, (message) =>
-        warn(`${title}: ${message}`),
+        contextWarnings.push(message),
       );
+      if (!title) {
+        const fromContent = contentTitle(delta.ops);
+        title = fromContent ?? "Untitled";
+        if (fromContent) contentTitles++;
+        else untitledObjects++;
+      }
+      for (const message of contextWarnings) warn(`${title}: ${message}`);
       if (kind === "task")
         delta.ops.unshift(
           { insert: title },
@@ -610,6 +672,14 @@ export function parseExport(files: Record<string, Uint8Array>): Dataset {
   if (!notes.length)
     throw new Error(
       "No notes or tasks were found. Select the objects inside your Anytype Set and export as Any-Block → JSON or Markdown. A Set definition alone does not contain its notes. Binary Protobuf exports are not supported.",
+    );
+  if (contentTitles)
+    warn(
+      `${contentTitles} unnamed objects use their first text line as a title. The original body text is kept.`,
+    );
+  if (untitledObjects)
+    warn(
+      `${untitledObjects} objects have no readable name or text and are titled “Untitled”.`,
     );
   return { notes, files, warnings, skipped, format: [...formats].join(" + ") };
 }
